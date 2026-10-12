@@ -1,0 +1,37 @@
+games:
+  - {appid: 730, name: Counter-Strike 2, group: online}
+  - {appid: 2868840, name: Slay the Spire 2, group: negative_wave}
+  - {appid: 570, name: Dota 2, group: online}
+  - {appid: 553850, name: Helldivers 2, group: negative_wave}
+  - {appid: 1091500, name: Cyberpunk 2077, group: negative_wave}
+  - {appid: 2357570, name: Overwatch 2, group: negative_wave}
+  - {appid: 1086940, name: Baldur's Gate 3, group: story}
+  - {appid: 1145360, name: Hades, group: indie}
+  - {appid: 2379780, name: Balatro, group: indie}
+
+http:
+  host_rps:
+    store.steampowered.com: 0.5
+    api.steampowered.com: 1.0
+    steamcharts.com: 0.5
+  max_retries: 8
+
+reviews:
+  languages: [english, russian, schinese, tchinese]
+  since_date: null
+  reviews_per_lang: 20000     # newest reviews per game x language; null or 0 = all
+
+news:
+  page_size: 100
+  max_items: 2000
+
+store_details:
+  country_codes: [us, ru, cn, tw]
+
+cleaning:
+  min_chars: 3                # shorter after strip -> empty (Chinese text exempt)
+  junk_min_letter_ratio: 0.3  # letters / non-space chars below this -> junk
+  dup_min_chars: 30           # same author + same text: only check texts at least this long
+  lang_min_chars: 20          # don't run language detection on shorter texts
+  lang_min_confidence: 0.9     # below this, text_language falls back to the Steam language
+  edited_min_delay_hours: 24

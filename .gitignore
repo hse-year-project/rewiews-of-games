@@ -1,0 +1,15 @@
+# secrets
+.env
+
+# data (raw API dumps, local exports)
+data/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# jupyter
+.ipynb_checkpoints/
