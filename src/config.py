@@ -28,6 +28,7 @@ class Game(BaseModel):
 
 class Http(BaseModel):
     host_rps: dict[str, float]
+    max_rps: float
     max_retries: int
 
 

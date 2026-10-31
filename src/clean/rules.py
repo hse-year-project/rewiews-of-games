@@ -11,6 +11,7 @@ DETECTABLE = [
 
 HAN = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")  # Chinese characters
 REPEATS = re.compile(r"(.)\1{2,}")
+SEPARATOR_CHARS = set("-—–_=~*.·•─━|")
 
 
 def text(df):
@@ -28,15 +29,27 @@ def is_empty(df, cfg):
     return (t.str.len() < cfg.min_chars) & ~t.str.contains(HAN)
 
 
+def is_art_line(line: str, min_letter_share: float) -> bool:
+    chars = [c for c in line if not c.isspace()]
+    if len(chars) < 5 or set(chars) <= SEPARATOR_CHARS:
+        return False
+    collapsed = [c for c in REPEATS.sub(r"\1", line) if not c.isspace()]
+    return sum(c.isalnum() for c in collapsed) / len(collapsed) < min_letter_share
+
+
 def is_junk_text(s: str, min_letter_share: float) -> bool:
-    collapsed = REPEATS.sub(r"\1", s)
-    if letter_share(collapsed) < min_letter_share:
-        return True
-    if sum(c.isalpha() for c in collapsed) == 1 and not HAN.search(s):
-        return True
     lines = [ln for ln in s.splitlines() if ln.strip()]
-    art_lines = [ln for ln in lines if letter_share(ln) < min_letter_share]
-    return len(lines) >= 5 and len(art_lines) > len(lines) / 2
+    if not lines:
+        return False
+    text_lines = [ln for ln in lines if not is_art_line(ln, min_letter_share)]
+    rest = REPEATS.sub(r"\1", " ".join(text_lines))
+    letters = sum(c.isalpha() for c in rest)
+    caption_size = letters + 2 * len(HAN.findall(rest))
+    if len(text_lines) < len(lines) and caption_size < 10:
+        return True
+    if letter_share(rest) < min_letter_share:
+        return True
+    return letters == 1 and not HAN.search(s)
 
 
 def is_junk(df, cfg):

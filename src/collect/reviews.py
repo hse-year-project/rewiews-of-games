@@ -1,4 +1,6 @@
+import json
 import logging
+import time
 from datetime import UTC, datetime
 
 from src.collect import raw_store
@@ -9,25 +11,39 @@ from src.db.write import upsert
 log = logging.getLogger(__name__)
 
 SOURCE = "reviews"
-URL = "https://store.steampowered.com/appreviews/{appid}"
+URL = "https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/"
 LOG_EVERY = 10_000
+STALL_RETRIES = 3
+
+
+def query(appid, language, cursor="*", num_per_page=100) -> dict:
+    """Request params: GetAppReviews takes everything as one JSON value."""
+    return {
+        "input_json": json.dumps(
+            {
+                "appid": appid,
+                "filter": 2,
+                "languages": [language],
+                "review_type": 0,
+                "purchase_type": 1,
+                "num_per_page": num_per_page,
+                "filter_offtopic_activity": False,
+                "cursor": cursor,
+            }
+        )
+    }
 
 
 def count(client, appid: int, language: str) -> int:
     """Steam's total number of reviews in this language."""
-    params = {
-        "json": 1,
-        "language": language,
-        "review_type": "all",
-        "purchase_type": "all",
-        "num_per_page": 0,
-        "filter_offtopic_activity": 0,
-    }
-    return client.get_json(URL.format(appid=appid), params)["query_summary"]["total_reviews"]
+    data = client.get_json(URL, query(appid, language, num_per_page=0))
+    return data["response"]["total_matching"]
 
 
-def collect(client, conn, appid: int, language: str, cap: int | None = None) -> int:
-    """Newest reviews, at most `cap` (None = all)."""
+def collect(client, conn, appid, language, cap=None, total=None) -> int:
+    """Newest reviews, at most `cap` (None = all). `total`: Steam's count, asked if not given."""
+    if total is None:
+        total = count(client, appid, language)
     state = review_state.get(conn, appid, language)
     watermark = state["watermark_updated_at"] if state else None
     stop_at = max(filter(None, [since(), watermark]), default=None)
@@ -39,39 +55,58 @@ def collect(client, conn, appid: int, language: str, cap: int | None = None) -> 
         cursor, n, newest = "*", 0, None
         review_state.start(conn, appid, language)
 
-    url = URL.format(appid=appid)
     run_dir = raw_store.new_run_dir(SOURCE, appid, language)
-    page_n = 0
+    page_n = stalls = 0
     while True:
-        params = {
-            "json": 1,
-            "filter": "updated",
-            "language": language,
-            "review_type": "all",
-            "purchase_type": "all",
-            "num_per_page": 100,
-            "filter_offtopic_activity": 0,  # keep review-bombing periods
-            "cursor": cursor,
-        }
-        data = client.get_json(url, params)
+        params = query(appid, language, cursor)
+        page = client.get_json(URL, params)
+        data = page["response"]
         reviews = data.get("reviews") or []
-        if not reviews:
-            break
-        page_n += 1
-        raw_store.save_page(run_dir, page_n, url, params, data)
-
-        n += len(reviews)
-        updated = [_ts(r["timestamp_updated"]) for r in reviews]
-        newest = max(updated) if newest is None else max(newest, *updated)
-        review_state.update(
-            conn, appid, language, last_cursor=data["cursor"], n_items=n, run_max_updated_at=newest
-        )
-        if n // LOG_EVERY > (n - len(reviews)) // LOG_EVERY:
-            log.info(
-                "%s [%s]: %d reviews so far, now at %s", appid, language, n, min(updated).date()
+        if reviews:
+            page_n += 1
+            raw_store.save_page(run_dir, page_n, URL, params, page)
+            n += len(reviews)
+            updated = [_ts(r["timestamp_updated"]) for r in reviews]
+            newest = max(updated) if newest is None else max(newest, *updated)
+            review_state.update(
+                conn,
+                appid,
+                language,
+                last_cursor=data["cursor"],
+                n_items=n,
+                run_max_updated_at=newest,
             )
-        if (stop_at and min(updated) < stop_at) or (cap and n >= cap) or data["cursor"] == cursor:
-            break
+            if n // LOG_EVERY > (n - len(reviews)) // LOG_EVERY:
+                log.info(
+                    "%s [%s]: %d / %d reviews, now at %s",
+                    appid,
+                    language,
+                    n,
+                    total,
+                    min(updated).date(),
+                )
+            if (stop_at and min(updated) < stop_at) or (cap and n >= cap):
+                break
+
+        if not reviews or data["cursor"] == cursor:
+            if n >= total - max(10, total // 100):
+                break
+            stalls += 1
+            if stalls > STALL_RETRIES:
+                raise RuntimeError(
+                    f"Steam stopped returning reviews after {n} of {total}; re-run to resume"
+                )
+            log.warning(
+                "%s [%s]: empty page at %d of %d, retry in %d min",
+                appid,
+                language,
+                n,
+                total,
+                stalls,
+            )
+            time.sleep(60 * stalls)
+            continue
+        stalls = 0
         cursor = data["cursor"]
 
     review_state.update(
@@ -115,23 +150,31 @@ def parse_review(r: dict, appid: int, fetched_at: str) -> dict:
     }
 
 
+def page_contents(page) -> tuple[dict, dict]:
+    """(data, request) of a raw page; reads both the new and the retired /appreviews format."""
+    response, params = page["response"], page["request"]["params"]
+    if "input_json" in params:
+        request = json.loads(params["input_json"])
+        return response["response"], request | {"language": request["languages"][0]}
+    return response, params
+
+
 def parse(conn) -> int:
     total = 0
     for appid, page in raw_store.iter_pages(SOURCE):
-        data = page["response"]
-        rows = [parse_review(r, appid, page["fetched_at"]) for r in data["reviews"]]
+        data, request = page_contents(page)
+        rows = [parse_review(r, appid, page["fetched_at"]) for r in data.get("reviews", [])]
         total += upsert(conn, "core.reviews", rows, ["recommendation_id"])
 
         summary = data.get("query_summary", {})
-        params = page["request"]["params"]
-        if "total_reviews" in summary and "start_date" not in params:
+        if "total_reviews" in summary and "start_date" not in request:
             upsert(
                 conn,
                 "core.review_summaries",
                 [
                     {
                         "appid": appid,
-                        "language": params["language"],
+                        "language": request["language"],
                         "fetched_at": page["fetched_at"],
                         "total_reviews": summary["total_reviews"],
                         "total_positive": summary["total_positive"],

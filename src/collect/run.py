@@ -59,7 +59,12 @@ def collect(jobs: pd.DataFrame) -> pd.DataFrame:
     client = SteamClient()
     results = []
     with connect() as conn, tqdm(total=int(jobs["requests"].sum()), unit="req") as bar:
-        client.on_request = lambda: bar.update(1)
+
+        def on_request(host):
+            bar.set_postfix_str(f"{client.rate.get(host, 1.0):.2f} req/s", refresh=False)
+            bar.update(1)
+
+        client.on_request = on_request
         for job in jobs.itertuples(index=False):
             label = f"{job.source} {job.game}" + (
                 f" [{job.language}]" if job.source == "reviews" else ""
@@ -69,7 +74,8 @@ def collect(jobs: pd.DataFrame) -> pd.DataFrame:
             try:
                 if job.source == "reviews":
                     cap = None if pd.isna(job.cap) else int(job.cap)
-                    n = reviews.collect(client, conn, job.appid, job.language, cap)
+                    total = int(job.steam_total)
+                    n = reviews.collect(client, conn, job.appid, job.language, cap, total)
                 else:
                     n = SOURCES[job.source].collect(client, job.appid)
                 status, error = "done", None

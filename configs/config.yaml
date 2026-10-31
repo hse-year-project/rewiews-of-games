@@ -8,18 +8,20 @@ games:
   - {appid: 1086940, name: Baldur's Gate 3, group: story}
   - {appid: 1145360, name: Hades, group: indie}
   - {appid: 2379780, name: Balatro, group: indie}
+  - {appid: 275850, name: No Mans Sky, group: negative_wave}
 
 http:
   host_rps:
+    api.steampowered.com: 0.5 
     store.steampowered.com: 0.5
-    api.steampowered.com: 1.0
     steamcharts.com: 0.5
+  max_rps: 2.0 
   max_retries: 8
 
 reviews:
   languages: [english, russian, schinese, tchinese]
   since_date: null
-  reviews_per_lang: 20000     # newest reviews per game x language; null or 0 = all
+  reviews_per_lang: 20000
 
 news:
   page_size: 100
