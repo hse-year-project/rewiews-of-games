@@ -6,7 +6,7 @@ from tqdm.auto import tqdm
 
 from src.collect import news, player_counts, reviews, store_details
 from src.collect.steam_client import SteamClient
-from src.config import CONFIG
+from src.config import CONFIG, Game, load_games, save_games
 from src.db.connection import connect
 
 log = logging.getLogger(__name__)
@@ -19,16 +19,19 @@ SOURCES = {
 }
 
 
-def plan(sources="all", appids=None, per_lang=None) -> pd.DataFrame:
+def plan(sources="all", appids=None, per_lang=None, groups=None) -> pd.DataFrame:
     """One row per job (source x game x language) with the expected number of requests.
 
+    appids: any Steam app IDs (None = all games in configs/games.yaml); new ones are added there.
+    groups: optional {appid: group} to set in configs/games.yaml.
     per_lang: reviews per game x language; None = reviews_per_lang from config, 0 = all reviews.
     Asks Steam for each language's review total.
     """
     cap = CONFIG.reviews.reviews_per_lang if per_lang is None else per_lang
     cap = cap or None  # 0 / null = no limit
     sources = list(SOURCES) if sources == "all" else list(sources)
-    games = [g for g in CONFIG.games if appids is None or g.appid in appids]
+    client = SteamClient()
+    games = resolve_games(client, appids, groups or {})
     jobs = [
         (source, game, lang)
         for source in sources
@@ -36,7 +39,6 @@ def plan(sources="all", appids=None, per_lang=None) -> pd.DataFrame:
         for lang in (CONFIG.reviews.languages if source == "reviews" else [None])
     ]
 
-    client = SteamClient()
     rows = []
     for source, game, lang in tqdm(jobs, desc="counting reviews on Steam", unit="job"):
         row = {"source": source, "appid": game.appid, "game": game.name, "language": lang}
@@ -52,6 +54,26 @@ def plan(sources="all", appids=None, per_lang=None) -> pd.DataFrame:
         if col in jobs:
             jobs[col] = jobs[col].astype("Int64")
     return jobs
+
+
+def resolve_games(client, appids, groups: dict) -> list[Game]:
+    """Selected games from configs/games.yaml; unknown app IDs are looked up and added."""
+    games = {g.appid: g for g in load_games()}
+    changed = False
+    for appid in [*(appids or []), *groups]:
+        if appid not in games:
+            games[appid] = Game(appid=appid, name=store_details.fetch_name(client, appid))
+            log.warning("added %s (%s) to configs/games.yaml", games[appid].name, appid)
+            changed = True
+    for appid, group in groups.items():
+        if games[appid].group != group:
+            games[appid] = games[appid].model_copy(update={"group": group})
+            changed = True
+    if changed:
+        save_games(list(games.values()))
+    if appids is None:
+        return sorted(games.values(), key=lambda g: g.appid)
+    return [games[a] for a in appids]
 
 
 def collect(jobs: pd.DataFrame) -> pd.DataFrame:

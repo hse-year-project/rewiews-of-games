@@ -23,7 +23,7 @@ class Env(BaseSettings):
 class Game(BaseModel):
     appid: int
     name: str
-    group: str
+    group: str | None = None
 
 
 class Http(BaseModel):
@@ -57,12 +57,40 @@ class Cleaning(BaseModel):
 
 
 class Config(BaseModel):
-    games: list[Game]
     http: Http
     reviews: Reviews
     news: News
     store_details: StoreDetails
     cleaning: Cleaning
+
+
+GAMES_FILE = ROOT / "configs" / "games.yaml"
+
+def load_games() -> list[Game]:
+    games: dict[int, Game] = {}
+    for entry in yaml.safe_load(GAMES_FILE.read_text(encoding="utf-8")) or []:
+        game = Game(**entry)
+        if game.appid in games and games[game.appid] != game:
+            raise ValueError(
+                f"configs/games.yaml lists appid {game.appid} twice with different values: "
+                f"{games[game.appid]} / {game} (e.g. after a git merge); keep one line"
+            )
+        games[game.appid] = game
+    return sorted(games.values(), key=lambda g: g.appid)
+
+
+def save_games(games: list[Game]):
+    lines = [
+        yaml.safe_dump(
+            [g.model_dump()],
+            default_flow_style=None,
+            sort_keys=False,
+            allow_unicode=True,
+            width=10_000,
+        )
+        for g in sorted(games, key=lambda g: g.appid)
+    ]
+    GAMES_FILE.write_text("".join(lines), encoding="utf-8")
 
 
 def since() -> datetime | None:

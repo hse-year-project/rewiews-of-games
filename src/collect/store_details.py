@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from src.collect import raw_store
-from src.config import CONFIG
+from src.config import CONFIG, load_games
 from src.db.write import upsert
 
 SOURCE = "store_details"
@@ -16,6 +16,14 @@ def collect(client, appid: int) -> int:
     return len(CONFIG.store_details.country_codes)
 
 
+def fetch_name(client, appid: int) -> str:
+    """The game's name on Steam (one small request); raises for an unknown appid."""
+    entry = client.get_json(URL, {"appids": appid, "filters": "basic", "l": "english"})[str(appid)]
+    if not entry["success"]:
+        raise ValueError(f"appid {appid} not found on Steam")
+    return entry["data"]["name"]
+
+
 def parse_release_date(text: str):
     for fmt in ("%b %d, %Y", "%d %b, %Y"):
         try:
@@ -26,7 +34,7 @@ def parse_release_date(text: str):
 
 
 def parse(conn) -> int:
-    groups = {g.appid: g.group for g in CONFIG.games}
+    groups = {g.appid: g.group for g in load_games()}
     games, prices = [], []
     for appid, page in raw_store.iter_pages(SOURCE):
         entry = page["response"][str(appid)]

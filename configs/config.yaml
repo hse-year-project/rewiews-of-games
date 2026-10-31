@@ -1,18 +1,6 @@
-games:
-  - {appid: 730, name: Counter-Strike 2, group: online}
-  - {appid: 2868840, name: Slay the Spire 2, group: negative_wave}
-  - {appid: 570, name: Dota 2, group: online}
-  - {appid: 553850, name: Helldivers 2, group: negative_wave}
-  - {appid: 1091500, name: Cyberpunk 2077, group: negative_wave}
-  - {appid: 2357570, name: Overwatch 2, group: negative_wave}
-  - {appid: 1086940, name: Baldur's Gate 3, group: story}
-  - {appid: 1145360, name: Hades, group: indie}
-  - {appid: 2379780, name: Balatro, group: indie}
-  - {appid: 275850, name: No Mans Sky, group: negative_wave}
-
 http:
   host_rps:
-    api.steampowered.com: 0.5 
+    api.steampowered.com: 1.0
     store.steampowered.com: 0.5
     steamcharts.com: 0.5
   max_rps: 2.0 

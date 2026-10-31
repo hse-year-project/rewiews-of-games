@@ -4,3 +4,5 @@
 *.ipynb filter=nbstripout
 *.zpln filter=nbstripout
 *.ipynb diff=ipynb
+
+configs/games.yaml merge=union
