@@ -22,8 +22,42 @@ def replace_review_flags(conn, flags, report):
     conn.commit()
 
 
+def replace_topics(conn, topics, review_topics):
+    """Replace all topics and review -> topic assignments (after a new fit)."""
+    cur = conn.cursor()
+    cur.execute("TRUNCATE analysis.topics, analysis.review_topics")
+    _copy(cur, "analysis.topics", topics)
+    _copy(cur, "analysis.review_topics", review_topics)
+    conn.commit()
+
+
+def add_review_topics(conn, review_topics):
+    """Assign topics to more reviews (overwriting old assignments) and recount topic sizes."""
+    cur = conn.cursor()
+    cur.execute("CREATE TEMP TABLE new_topics (LIKE analysis.review_topics) ON COMMIT DROP")
+    _copy(cur, "new_topics", review_topics)
+    cur.execute(
+        "INSERT INTO analysis.review_topics SELECT * FROM new_topics "
+        "ON CONFLICT (recommendation_id) DO UPDATE SET topic_id = EXCLUDED.topic_id"
+    )
+    cur.execute(
+        "UPDATE analysis.topics t SET n_reviews = "
+        "(SELECT count(*) FROM analysis.review_topics rt WHERE rt.topic_id = t.topic_id)"
+    )
+    conn.commit()
+
+
+def set_topic_labels(conn, labels: dict[int, str]):
+    conn.cursor().executemany(
+        "UPDATE analysis.topics SET label = %s WHERE topic_id = %s",
+        [(label, topic_id) for topic_id, label in labels.items()],
+    )
+    conn.commit()
+
+
 def _copy(cur, table, df):
-    """Bulk insert a DataFrame with COPY."""
+    """Bulk insert a DataFrame with COPY (missing values -> NULL)."""
+    df = df.astype(object).where(df.notna(), None)
     with cur.copy(f"COPY {table} ({', '.join(df.columns)}) FROM STDIN") as copy:
         for row in df.itertuples(index=False):
             copy.write_row(row)

@@ -9,7 +9,7 @@ DETECTABLE = [
     for name in "english russian chinese german french spanish portuguese polish ukrainian turkish japanese korean".split()
 ]
 
-HAN = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")  # Chinese characters
+HAN = re.compile("[\u3400-\u9fff\uf900-\ufaff]")  # Chinese characters
 REPEATS = re.compile(r"(.)\1{2,}")
 SEPARATOR_CHARS = set("-—–_=~*.·•─━|")
 

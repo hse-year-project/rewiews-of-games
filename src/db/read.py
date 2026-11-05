@@ -21,20 +21,24 @@ def reviews(
     columns: list[str] | None = None,
     only_kept=False,
     with_flags=True,
+    with_topics=False,
 ) -> pd.DataFrame:
-    """Reviews with their cleaning flags. since/until filter by created_at."""
+    """Reviews with their cleaning flags (and topics). since/until filter by created_at."""
     where, params = _filters(appids, languages, since, until, time_column="created_at")
-    review_cols = ", ".join(f"r.{c}" for c in columns) if columns else "r.*"
-    if not with_flags:
-        return _select(f"SELECT {review_cols} FROM core.reviews r {where}", params)
-    if only_kept:
-        where += (" AND " if where else "WHERE ") + "f.keep"
-    flag_cols = ", ".join(f"f.{c}" for c in FLAG_COLUMNS if c != "recommendation_id")
-    return _select(
-        f"SELECT {review_cols}, {flag_cols} FROM core.reviews r "
-        f"LEFT JOIN clean.review_flags f USING (recommendation_id) {where}",
-        params,
-    )
+    select = [", ".join(f"r.{c}" for c in columns) if columns else "r.*"]
+    joins = ""
+    if with_flags:
+        select += [f"f.{c}" for c in FLAG_COLUMNS if c != "recommendation_id"]
+        joins += " LEFT JOIN clean.review_flags f USING (recommendation_id)"
+        if only_kept:
+            where += (" AND " if where else "WHERE ") + "f.keep"
+    if with_topics:
+        select += ["rt.topic_id", "t.label AS topic_label"]
+        joins += (
+            " LEFT JOIN analysis.review_topics rt USING (recommendation_id)"
+            " LEFT JOIN analysis.topics t ON t.topic_id = rt.topic_id"
+        )
+    return _select(f"SELECT {', '.join(select)} FROM core.reviews r{joins} {where}", params)
 
 
 def review_totals(appids=None) -> pd.DataFrame:
@@ -51,6 +55,10 @@ def news(appids=None, since=None, until=None) -> pd.DataFrame:
 def player_counts(appids=None, since=None, until=None) -> pd.DataFrame:
     where, params = _filters(appids, since=since, until=until, time_column="ts")
     return _select(f"SELECT * FROM core.player_counts {where}", params)
+
+
+def topics() -> pd.DataFrame:
+    return _select("SELECT * FROM analysis.topics ORDER BY topic_id")
 
 
 def review_collection() -> pd.DataFrame:

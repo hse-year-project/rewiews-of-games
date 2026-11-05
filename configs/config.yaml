@@ -3,7 +3,7 @@ http:
     api.steampowered.com: 1.0
     store.steampowered.com: 0.5
     steamcharts.com: 0.5
-  max_rps: 2.0 
+  max_rps: 3.0 
   max_retries: 8
 
 reviews:

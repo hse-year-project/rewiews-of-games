@@ -125,3 +125,17 @@ CREATE TABLE IF NOT EXISTS clean.review_flags (
     is_edited             boolean NOT NULL,
     keep                  boolean NOT NULL
 );
+
+CREATE SCHEMA IF NOT EXISTS analysis;
+
+CREATE TABLE IF NOT EXISTS analysis.topics (
+    topic_id              integer PRIMARY KEY,    -- -1 = noise, -2 = too short to have a topic
+    n_reviews             integer NOT NULL,
+    keywords              text,
+    label                 text
+);
+
+CREATE TABLE IF NOT EXISTS analysis.review_topics (
+    recommendation_id     bigint PRIMARY KEY,
+    topic_id              integer NOT NULL
+);
