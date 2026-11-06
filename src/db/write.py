@@ -1,3 +1,6 @@
+from src.db.connection import connect
+
+
 def upsert(conn, table: str, rows: list[dict], key: list[str]) -> int:
     """Insert rows, overwriting existing ones with the same key."""
     if not rows:
@@ -22,37 +25,37 @@ def replace_review_flags(conn, flags, report):
     conn.commit()
 
 
-def replace_topics(conn, topics, review_topics):
+def replace_topics(topics, review_topics):
     """Replace all topics and review -> topic assignments (after a new fit)."""
-    cur = conn.cursor()
-    cur.execute("TRUNCATE analysis.topics, analysis.review_topics")
-    _copy(cur, "analysis.topics", topics)
-    _copy(cur, "analysis.review_topics", review_topics)
-    conn.commit()
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("TRUNCATE analysis.topics, analysis.review_topics")
+        _copy(cur, "analysis.topics", topics)
+        _copy(cur, "analysis.review_topics", review_topics)
 
 
-def add_review_topics(conn, review_topics):
+def add_review_topics(review_topics):
     """Assign topics to more reviews (overwriting old assignments) and recount topic sizes."""
-    cur = conn.cursor()
-    cur.execute("CREATE TEMP TABLE new_topics (LIKE analysis.review_topics) ON COMMIT DROP")
-    _copy(cur, "new_topics", review_topics)
-    cur.execute(
-        "INSERT INTO analysis.review_topics SELECT * FROM new_topics "
-        "ON CONFLICT (recommendation_id) DO UPDATE SET topic_id = EXCLUDED.topic_id"
-    )
-    cur.execute(
-        "UPDATE analysis.topics t SET n_reviews = "
-        "(SELECT count(*) FROM analysis.review_topics rt WHERE rt.topic_id = t.topic_id)"
-    )
-    conn.commit()
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("CREATE TEMP TABLE new_topics (LIKE analysis.review_topics) ON COMMIT DROP")
+        _copy(cur, "new_topics", review_topics)
+        cur.execute(
+            "INSERT INTO analysis.review_topics SELECT * FROM new_topics "
+            "ON CONFLICT (recommendation_id) DO UPDATE SET topic_id = EXCLUDED.topic_id"
+        )
+        cur.execute(
+            "UPDATE analysis.topics t SET n_reviews = "
+            "(SELECT count(*) FROM analysis.review_topics rt WHERE rt.topic_id = t.topic_id)"
+        )
 
 
-def set_topic_labels(conn, labels: dict[int, str]):
-    conn.cursor().executemany(
-        "UPDATE analysis.topics SET label = %s WHERE topic_id = %s",
-        [(label, topic_id) for topic_id, label in labels.items()],
-    )
-    conn.commit()
+def set_topic_labels(labels: dict[int, str]):
+    with connect() as conn:
+        conn.cursor().executemany(
+            "UPDATE analysis.topics SET label = %s WHERE topic_id = %s",
+            [(label, topic_id) for topic_id, label in labels.items()],
+        )
 
 
 def _copy(cur, table, df):
