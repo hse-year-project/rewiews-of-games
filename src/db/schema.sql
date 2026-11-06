@@ -12,9 +12,9 @@ CREATE TABLE IF NOT EXISTS core.games (
     publishers        text[],
     genres            text[],
     categories        text[],
-    group_tag         text,
     fetched_at        timestamptz NOT NULL
 );
+ALTER TABLE core.games DROP COLUMN IF EXISTS group_tag;  -- removed 2026-11; drops it from older databases
 
 CREATE TABLE IF NOT EXISTS core.game_prices (
     appid             integer NOT NULL,

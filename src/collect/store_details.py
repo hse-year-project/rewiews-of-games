@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from src.collect import raw_store
-from src.config import CONFIG, load_games
+from src.config import CONFIG
 from src.db.write import upsert
 
 SOURCE = "store_details"
@@ -34,7 +34,6 @@ def parse_release_date(text: str):
 
 
 def parse(conn) -> int:
-    groups = {g.appid: g.group for g in load_games()}
     games, prices = [], []
     for appid, page in raw_store.iter_pages(SOURCE):
         entry = page["response"][str(appid)]
@@ -52,7 +51,6 @@ def parse(conn) -> int:
                 "publishers": d.get("publishers", []),
                 "genres": [g["description"] for g in d.get("genres", [])],
                 "categories": [c["description"] for c in d.get("categories", [])],
-                "group_tag": groups.get(appid),
                 "fetched_at": page["fetched_at"],
             }
         )

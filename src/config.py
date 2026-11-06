@@ -23,7 +23,6 @@ class Env(BaseSettings):
 class Game(BaseModel):
     appid: int
     name: str
-    group: str | None = None
 
 
 class Http(BaseModel):

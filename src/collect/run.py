@@ -19,11 +19,10 @@ SOURCES = {
 }
 
 
-def plan(sources="all", appids=None, per_lang=None, groups=None) -> pd.DataFrame:
+def plan(sources="all", appids=None, per_lang=None) -> pd.DataFrame:
     """One row per job (source x game x language) with the expected number of requests.
 
     appids: any Steam app IDs (None = all games in configs/games.yaml); new ones are added there.
-    groups: optional {appid: group} to set in configs/games.yaml.
     per_lang: reviews per game x language; None = reviews_per_lang from config, 0 = all reviews.
     Asks Steam for each language's review total.
     """
@@ -31,7 +30,7 @@ def plan(sources="all", appids=None, per_lang=None, groups=None) -> pd.DataFrame
     cap = cap or None  # 0 / null = no limit
     sources = list(SOURCES) if sources == "all" else list(sources)
     client = SteamClient()
-    games = resolve_games(client, appids, groups or {})
+    games = resolve_games(client, appids)
     jobs = [
         (source, game, lang)
         for source in sources
@@ -56,18 +55,14 @@ def plan(sources="all", appids=None, per_lang=None, groups=None) -> pd.DataFrame
     return jobs
 
 
-def resolve_games(client, appids, groups: dict) -> list[Game]:
+def resolve_games(client, appids) -> list[Game]:
     """Selected games from configs/games.yaml; unknown app IDs are looked up and added."""
     games = {g.appid: g for g in load_games()}
     changed = False
-    for appid in [*(appids or []), *groups]:
+    for appid in appids or []:
         if appid not in games:
             games[appid] = Game(appid=appid, name=store_details.fetch_name(client, appid))
             log.warning("added %s (%s) to configs/games.yaml", games[appid].name, appid)
-            changed = True
-    for appid, group in groups.items():
-        if games[appid].group != group:
-            games[appid] = games[appid].model_copy(update={"group": group})
             changed = True
     if changed:
         save_games(list(games.values()))
