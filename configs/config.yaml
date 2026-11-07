@@ -1,9 +1,9 @@
 http:
   host_rps:
-    api.steampowered.com: 1.0
+    api.steampowered.com: 2.0
     store.steampowered.com: 0.5
     steamcharts.com: 0.5
-  max_rps: 3.0 
+  max_rps: 4.0 
   max_retries: 8
 
 reviews:

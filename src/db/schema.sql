@@ -102,6 +102,13 @@ CREATE TABLE IF NOT EXISTS meta.review_collection (
     PRIMARY KEY (appid, language)
 );
 
+CREATE TABLE IF NOT EXISTS meta.parsed_pages (
+    source                text NOT NULL,
+    path                  text NOT NULL,          -- relative to data/raw/<source>
+    parsed_at             timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (source, path)
+);
+
 CREATE TABLE IF NOT EXISTS meta.cleaning_report (
     run_id            text NOT NULL,
     rule              text NOT NULL,
@@ -123,8 +130,12 @@ CREATE TABLE IF NOT EXISTS clean.review_flags (
     is_lang_mismatch      boolean NOT NULL,
     text_language         text,                   -- language of the text (`language` = Steam client)
     is_edited             boolean NOT NULL,
-    keep                  boolean NOT NULL
+    keep                  boolean NOT NULL,
+    review_updated_at     timestamptz,            -- review's updated_at when flagged: newer = re-check
+    rules_hash            text                    -- cleaning rules + thresholds when flagged: other = re-check
 );
+ALTER TABLE clean.review_flags ADD COLUMN IF NOT EXISTS review_updated_at timestamptz;
+ALTER TABLE clean.review_flags ADD COLUMN IF NOT EXISTS rules_hash text;
 
 CREATE SCHEMA IF NOT EXISTS analysis;
 

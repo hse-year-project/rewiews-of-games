@@ -159,12 +159,12 @@ def page_contents(page) -> tuple[dict, dict]:
     return response, params
 
 
-def parse(conn) -> int:
+def parse(conn, full=False) -> int:
     total = 0
-    for appid, page in raw_store.iter_pages(SOURCE):
+    for appid, page in raw_store.iter_pages(SOURCE, conn, full):
         data, request = page_contents(page)
         rows = [parse_review(r, appid, page["fetched_at"]) for r in data.get("reviews", [])]
-        total += upsert(conn, "core.reviews", rows, ["recommendation_id"])
+        total += upsert(conn, "core.reviews", rows, ["recommendation_id"], newer="fetched_at")
 
         summary = data.get("query_summary", {})
         if "total_reviews" in summary and "start_date" not in request:
@@ -184,7 +184,6 @@ def parse(conn) -> int:
                 ],
                 ["appid", "language", "fetched_at"],
             )
-    conn.commit()
     return total
 
 

@@ -3,6 +3,8 @@ import pandas as pd
 from src.clean.rules import FLAG_COLUMNS
 from src.db.connection import connect
 
+FETCH_ROWS = 200_000  # rows turned into a DataFrame at a time (keeps big reads small in memory)
+
 
 def games() -> pd.DataFrame:
     return _select("SELECT * FROM core.games")
@@ -19,26 +21,115 @@ def reviews(
     since=None,
     until=None,
     columns: list[str] | None = None,
+    ids=None,
     only_kept=False,
     with_flags=True,
+    flag_columns: list[str] | None = None,
     with_topics=False,
+    text_length=False,
 ) -> pd.DataFrame:
-    """Reviews with their cleaning flags (and topics). since/until filter by created_at."""
+    """Reviews with their cleaning flags (and topic). since/until filter by created_at.
+
+    For millions of reviews load only what you need: `columns` (e.g. without `review`),
+    `flag_columns` (None = all, [] = none), `text_length=True` adds text_len instead of the text.
+    Topic names: read.topics().
+    """
+    return _select(*_reviews_query(**locals()))
+
+
+def iter_reviews(rows=FETCH_ROWS, **kwargs):
+    """Same arguments as reviews(), but yields DataFrames of `rows` reviews from one query:
+    for passes over all reviews (e.g. all texts) without holding them in memory at once."""
+    yield from _chunks(*_reviews_query(**kwargs), rows)
+
+
+def _reviews_query(
+    appids=None,
+    languages=None,
+    since=None,
+    until=None,
+    columns=None,
+    ids=None,
+    only_kept=False,
+    with_flags=True,
+    flag_columns=None,
+    with_topics=False,
+    text_length=False,
+):
     where, params = _filters(appids, languages, since, until, time_column="created_at")
+    if ids is not None:
+        where += (" AND " if where else "WHERE ") + "r.recommendation_id = ANY(%(ids)s)"
+        params["ids"] = list(ids)
     select = [", ".join(f"r.{c}" for c in columns) if columns else "r.*"]
+    if text_length:
+        select.append("length(r.review) AS text_len")
     joins = ""
     if with_flags:
-        select += [f"f.{c}" for c in FLAG_COLUMNS if c != "recommendation_id"]
+        names = (
+            [c for c in FLAG_COLUMNS if c != "recommendation_id"]
+            if flag_columns is None
+            else flag_columns
+        )
+        select += [f"f.{c}" for c in names]
         joins += " LEFT JOIN clean.review_flags f USING (recommendation_id)"
         if only_kept:
             where += (" AND " if where else "WHERE ") + "f.keep"
     if with_topics:
-        select += ["rt.topic_id", "t.label AS topic_label"]
-        joins += (
-            " LEFT JOIN analysis.review_topics rt USING (recommendation_id)"
-            " LEFT JOIN analysis.topics t ON t.topic_id = rt.topic_id"
+        select.append("rt.topic_id")
+        joins += " LEFT JOIN analysis.review_topics rt USING (recommendation_id)"
+    return f"SELECT {', '.join(select)} FROM core.reviews r{joins} {where}", params
+
+
+def reviews_to_clean(rules_hash: str, full=False) -> pd.DataFrame:
+    """IDs of reviews without flags, edited since flagged or flagged under other rules,
+    plus all other reviews of their authors (needed for the duplicate rule); full: all reviews.
+    author_key = author's Steam ID (the review's own ID when unknown), to keep authors together."""
+    if full:
+        return _select(
+            "SELECT recommendation_id, coalesce(author_steamid, recommendation_id) AS author_key "
+            "FROM core.reviews"
         )
-    return _select(f"SELECT {', '.join(select)} FROM core.reviews r{joins} {where}", params)
+    return _select(
+        """
+        WITH changed AS (
+            SELECT r.recommendation_id, r.author_steamid
+            FROM core.reviews r LEFT JOIN clean.review_flags f USING (recommendation_id)
+            WHERE f.recommendation_id IS NULL
+               OR f.review_updated_at IS DISTINCT FROM r.updated_at
+               OR f.rules_hash IS DISTINCT FROM %(rules_hash)s
+        ),
+        ids AS (
+            SELECT recommendation_id FROM changed
+            UNION
+            SELECT r.recommendation_id FROM core.reviews r
+            JOIN (SELECT DISTINCT author_steamid FROM changed) a USING (author_steamid)
+        )
+        SELECT r.recommendation_id, coalesce(r.author_steamid, r.recommendation_id) AS author_key
+        FROM core.reviews r JOIN ids USING (recommendation_id)
+        """,
+        {"rules_hash": rules_hash},
+    )
+
+
+def flag_counts(rules: list[str]) -> pd.DataFrame:
+    """Per game and language: number of flagged reviews, how many each rule hit, how many dropped."""
+    hits = ", ".join(f"count(*) FILTER (WHERE f.{rule}) AS {rule}" for rule in rules)
+    return _select(
+        f"SELECT r.appid, r.language, count(*) AS n_total, {hits}, "
+        "count(*) FILTER (WHERE NOT f.keep) AS dropped "
+        "FROM core.reviews r JOIN clean.review_flags f USING (recommendation_id) "
+        "GROUP BY r.appid, r.language"
+    )
+
+
+def flagged_examples(rule: str, n=8) -> pd.DataFrame:
+    """n random reviews that a cleaning rule (e.g. "is_junk") hit."""
+    return _select(
+        "SELECT r.language, f.lang_detected, f.lang_conf, r.review "
+        f"FROM core.reviews r JOIN clean.review_flags f USING (recommendation_id) WHERE f.{rule} "
+        "ORDER BY random() LIMIT %(n)s",
+        {"n": n},
+    )
 
 
 def review_totals(appids=None) -> pd.DataFrame:
@@ -97,10 +188,22 @@ TIMESTAMPTZ = 1184  # Postgres type id
 
 
 def _select(query, params=None) -> pd.DataFrame:
-    with connect() as conn, conn.cursor() as cur:
+    parts = list(_chunks(query, params, FETCH_ROWS))
+    return pd.concat(parts, ignore_index=True) if len(parts) > 1 else parts[0]
+
+
+def _chunks(query, params, rows):
+    """DataFrames of `rows` rows (at least one, maybe empty) from a server-side cursor."""
+    with connect() as conn, conn.cursor(name="select") as cur:
         cur.execute(query, params)
-        columns = cur.description
-        df = pd.DataFrame(cur.fetchall(), columns=[c.name for c in columns])
+        first = True
+        while (batch := cur.fetchmany(rows)) or first:
+            yield _frame(batch, cur.description)
+            first = False
+
+
+def _frame(rows, columns) -> pd.DataFrame:
+    df = pd.DataFrame(rows, columns=[c.name for c in columns])
     for c in columns:
         if c.type_code == TIMESTAMPTZ:
             df[c.name] = pd.to_datetime(df[c.name], utc=True)

@@ -37,10 +37,10 @@ def parse_points(points: list, appid: int) -> list[dict]:
     ]
 
 
-def parse(conn) -> int:
-    rows = []
-    for appid, page in raw_store.iter_pages(SOURCE):
-        rows += parse_points(page["response"], appid)
-    upsert(conn, "core.player_counts", rows, ["appid", "ts"])
-    conn.commit()
-    return len(rows)
+def parse(conn, full=False) -> int:
+    n = 0
+    for appid, page in raw_store.iter_pages(SOURCE, conn, full):
+        n += upsert(
+            conn, "core.player_counts", parse_points(page["response"], appid), ["appid", "ts"]
+        )
+    return n

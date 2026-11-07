@@ -43,9 +43,10 @@ def is_patch(item: dict) -> bool:
     return "patchnotes" in item.get("tags", []) or bool(PATCH_TITLE.search(item.get("title", "")))
 
 
-def parse(conn) -> int:
-    rows = []
-    for appid, page in raw_store.iter_pages(SOURCE):
+def parse(conn, full=False) -> int:
+    n = 0
+    for appid, page in raw_store.iter_pages(SOURCE, conn, full):
+        rows = []
         for it in page["response"]["appnews"]["newsitems"]:
             rows.append(
                 {
@@ -62,6 +63,5 @@ def parse(conn) -> int:
                     "published_at": datetime.fromtimestamp(it["date"], UTC),
                 }
             )
-    upsert(conn, "core.news", rows, ["gid"])
-    conn.commit()
-    return len(rows)
+        n += upsert(conn, "core.news", rows, ["gid"])
+    return n

@@ -115,8 +115,9 @@ def estimate_requests(source) -> int:
     return 1
 
 
-def parse(sources="all") -> pd.DataFrame:
+def parse(sources="all", full=False) -> pd.DataFrame:
+    """Load raw pages that are not parsed yet into Postgres (full: all pages again)."""
     sources = list(SOURCES) if sources == "all" else list(sources)
     with connect() as conn:
-        rows = {name: SOURCES[name].parse(conn) for name in sources}
+        rows = {name: SOURCES[name].parse(conn, full) for name in sources}
     return pd.DataFrame({"rows": rows})

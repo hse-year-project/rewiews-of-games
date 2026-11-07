@@ -33,40 +33,35 @@ def parse_release_date(text: str):
     return None
 
 
-def parse(conn) -> int:
-    games, prices = [], []
-    for appid, page in raw_store.iter_pages(SOURCE):
+def parse(conn, full=False) -> int:
+    n = 0
+    for appid, page in raw_store.iter_pages(SOURCE, conn, full):
         entry = page["response"][str(appid)]
         if not entry["success"]:
             continue
         d, country = entry["data"], page["request"]["params"]["cc"]
-        games.append(
-            {
-                "appid": appid,
-                "name": d["name"],
-                "type": d["type"],
-                "is_free": d["is_free"],
-                "release_date": parse_release_date(d["release_date"]["date"]),
-                "developers": d.get("developers", []),
-                "publishers": d.get("publishers", []),
-                "genres": [g["description"] for g in d.get("genres", [])],
-                "categories": [c["description"] for c in d.get("categories", [])],
-                "fetched_at": page["fetched_at"],
-            }
-        )
+        game = {
+            "appid": appid,
+            "name": d["name"],
+            "type": d["type"],
+            "is_free": d["is_free"],
+            "release_date": parse_release_date(d["release_date"]["date"]),
+            "developers": d.get("developers", []),
+            "publishers": d.get("publishers", []),
+            "genres": [g["description"] for g in d.get("genres", [])],
+            "categories": [c["description"] for c in d.get("categories", [])],
+            "fetched_at": page["fetched_at"],
+        }
         price = d.get("price_overview", {})
-        prices.append(
-            {
-                "appid": appid,
-                "country_code": country,
-                "currency": price.get("currency"),
-                "price_initial": price.get("initial", 0),
-                "price_final": price.get("final", 0),
-                "discount_percent": price.get("discount_percent", 0),
-                "fetched_at": page["fetched_at"],
-            }
-        )
-    upsert(conn, "core.games", games, ["appid"])
-    upsert(conn, "core.game_prices", prices, ["appid", "country_code"])
-    conn.commit()
-    return len(games)
+        price_row = {
+            "appid": appid,
+            "country_code": country,
+            "currency": price.get("currency"),
+            "price_initial": price.get("initial", 0),
+            "price_final": price.get("final", 0),
+            "discount_percent": price.get("discount_percent", 0),
+            "fetched_at": page["fetched_at"],
+        }
+        n += upsert(conn, "core.games", [game], ["appid"], newer="fetched_at")
+        upsert(conn, "core.game_prices", [price_row], ["appid", "country_code"], newer="fetched_at")
+    return n

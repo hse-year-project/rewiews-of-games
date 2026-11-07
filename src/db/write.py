@@ -1,8 +1,12 @@
 from src.db.connection import connect
 
 
-def upsert(conn, table: str, rows: list[dict], key: list[str]) -> int:
-    """Insert rows, overwriting existing ones with the same key."""
+def upsert(conn, table: str, rows: list[dict], key: list[str], newer: str | None = None) -> int:
+    """Insert rows, overwriting existing ones with the same key.
+
+    newer: a timestamp column; an existing row is only overwritten by a row at least as new
+    (so parsing an older raw page after a newer one keeps the newer data).
+    """
     if not rows:
         return 0
     cols = list(rows[0])
@@ -12,17 +16,31 @@ def upsert(conn, table: str, rows: list[dict], key: list[str]) -> int:
         f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({placeholders}) "
         f"ON CONFLICT ({', '.join(key)}) DO UPDATE SET {updates}"
     )
+    if newer:
+        query += f" WHERE {table}.{newer} <= EXCLUDED.{newer}"
     conn.cursor().executemany(query, rows)
     return len(rows)
 
 
-def replace_review_flags(conn, flags, report):
-    """Replace all of clean.review_flags and append this run to meta.cleaning_report."""
-    cur = conn.cursor()
-    cur.execute("TRUNCATE clean.review_flags")
-    _copy(cur, "clean.review_flags", flags)
-    _copy(cur, "meta.cleaning_report", report)
-    conn.commit()
+def save_review_flags(flags):
+    """Insert or overwrite flags of these reviews."""
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("CREATE TEMP TABLE new_flags (LIKE clean.review_flags) ON COMMIT DROP")
+        _copy(cur, "new_flags", flags)
+        cols = ", ".join(flags.columns)
+        updates = ", ".join(
+            f"{c} = EXCLUDED.{c}" for c in flags.columns if c != "recommendation_id"
+        )
+        cur.execute(
+            f"INSERT INTO clean.review_flags ({cols}) SELECT {cols} FROM new_flags "
+            f"ON CONFLICT (recommendation_id) DO UPDATE SET {updates}"
+        )
+
+
+def add_cleaning_report(report):
+    with connect() as conn:
+        _copy(conn.cursor(), "meta.cleaning_report", report)
 
 
 def replace_topics(topics, review_topics):
