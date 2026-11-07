@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 from urllib.parse import urlsplit
@@ -52,7 +53,8 @@ class SteamClient:
                     self._speed_up(host)
                     if self.on_request:
                         self.on_request(host)
-                    return resp.json()
+                    # Steam may cut a review mid-letter (invalid UTF-8): that letter becomes �
+                    return json.loads(resp.content.decode("utf-8", errors="replace"))
             pause = min(pause, 300)
             log.warning("%s from %s, retry in %ds", problem, host, pause)
             time.sleep(pause)

@@ -1,5 +1,6 @@
 import logging
 import math
+import threading
 
 import pandas as pd
 from tqdm.auto import tqdm
@@ -71,8 +72,16 @@ def resolve_games(client, appids) -> list[Game]:
     return [games[a] for a in appids]
 
 
-def collect(jobs: pd.DataFrame) -> pd.DataFrame:
-    """Run a plan(): download raw API responses into data/raw."""
+class Stopped(Exception):
+    """Raised inside collect() after its `stop` event is set."""
+
+
+def collect(jobs: pd.DataFrame, stop: threading.Event | None = None) -> pd.DataFrame:
+    """Run a plan(): download raw API responses into data/raw.
+
+    stop: once set, collection ends after the current request; the rest of the jobs are
+    skipped (a stopped review job continues from its cursor next time).
+    """
     client = SteamClient()
     results = []
     with connect() as conn, tqdm(total=int(jobs["requests"].sum()), unit="req") as bar:
@@ -80,9 +89,14 @@ def collect(jobs: pd.DataFrame) -> pd.DataFrame:
         def on_request(host):
             bar.set_postfix_str(f"{client.rate.get(host, 1.0):.2f} req/s", refresh=False)
             bar.update(1)
+            if stop is not None and stop.is_set():
+                raise Stopped
 
         client.on_request = on_request
         for job in jobs.itertuples(index=False):
+            if stop is not None and stop.is_set():
+                results.append({"items": 0, "status": "skipped", "error": None})
+                continue
             label = f"{job.source} {job.game}" + (
                 f" [{job.language}]" if job.source == "reviews" else ""
             )
@@ -96,6 +110,9 @@ def collect(jobs: pd.DataFrame) -> pd.DataFrame:
                 else:
                     n = SOURCES[job.source].collect(client, job.appid)
                 status, error = "done", None
+            except Stopped:
+                conn.rollback()
+                n, status, error = 0, "stopped", None
             except Exception as e:
                 conn.rollback()
                 n, status, error = 0, "failed", repr(e)

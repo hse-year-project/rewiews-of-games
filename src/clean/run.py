@@ -17,7 +17,7 @@ CHUNK = 250_000  # reviews in memory at once
 
 
 def rules_hash() -> str:
-    """Fingerprint of the cleaning rules and thresholds: when it changes, every review is re-checked."""
+    """Fingerprint of the cleaning rules and thresholds: a change re-checks all reviews."""
     source = Path(rules.__file__).read_bytes() + json.dumps(CONFIG.cleaning.model_dump()).encode()
     return hashlib.sha256(source).hexdigest()[:16]
 

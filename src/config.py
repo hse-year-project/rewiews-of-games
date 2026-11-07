@@ -7,6 +7,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW_DIR = ROOT / "data" / "raw"
+EMBEDDINGS_DIR = ROOT / "data" / "embeddings"
+TOPICS_DIR = ROOT / "data" / "models" / "bertopic"
+TOPIC_SHORT, TOPIC_NOISE = -2, -1  # special topic ids: too short to have a topic, no clear topic
 
 
 class Env(BaseSettings):
@@ -65,6 +68,7 @@ class Config(BaseModel):
 
 GAMES_FILE = ROOT / "configs" / "games.yaml"
 
+
 def load_games() -> list[Game]:
     games: dict[int, Game] = {}
     for entry in yaml.safe_load(GAMES_FILE.read_text(encoding="utf-8")) or []:
@@ -76,6 +80,10 @@ def load_games() -> list[Game]:
             )
         games[game.appid] = game
     return sorted(games.values(), key=lambda g: g.appid)
+
+
+def game_names() -> dict[int, str]:
+    return {g.appid: g.name for g in load_games()}
 
 
 def save_games(games: list[Game]):

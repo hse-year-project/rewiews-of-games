@@ -4,6 +4,7 @@ from src.clean.rules import FLAG_COLUMNS
 from src.db.connection import connect
 
 FETCH_ROWS = 200_000  # rows turned into a DataFrame at a time (keeps big reads small in memory)
+TIMESTAMPTZ = 1184  # Postgres type id
 
 
 def games() -> pd.DataFrame:
@@ -11,8 +12,8 @@ def games() -> pd.DataFrame:
 
 
 def prices(appids=None) -> pd.DataFrame:
-    where, params = _filters(appids=appids)
-    return _select(f"SELECT * FROM core.game_prices {where}", params)
+    conditions, params = _filters(appids=appids)
+    return _select(f"SELECT * FROM core.game_prices {_where(conditions)}", params)
 
 
 def reviews(
@@ -27,6 +28,7 @@ def reviews(
     flag_columns: list[str] | None = None,
     with_topics=False,
     text_length=False,
+    _rows=None,
 ) -> pd.DataFrame:
     """Reviews with their cleaning flags (and topic). since/until filter by created_at.
 
@@ -34,50 +36,32 @@ def reviews(
     `flag_columns` (None = all, [] = none), `text_length=True` adds text_len instead of the text.
     Topic names: read.topics().
     """
-    return _select(*_reviews_query(**locals()))
-
-
-def iter_reviews(rows=FETCH_ROWS, **kwargs):
-    """Same arguments as reviews(), but yields DataFrames of `rows` reviews from one query:
-    for passes over all reviews (e.g. all texts) without holding them in memory at once."""
-    yield from _chunks(*_reviews_query(**kwargs), rows)
-
-
-def _reviews_query(
-    appids=None,
-    languages=None,
-    since=None,
-    until=None,
-    columns=None,
-    ids=None,
-    only_kept=False,
-    with_flags=True,
-    flag_columns=None,
-    with_topics=False,
-    text_length=False,
-):
-    where, params = _filters(appids, languages, since, until, time_column="created_at")
+    conditions, params = _filters(appids, languages, since, until, time_column="created_at")
     if ids is not None:
-        where += (" AND " if where else "WHERE ") + "r.recommendation_id = ANY(%(ids)s)"
+        conditions.append("r.recommendation_id = ANY(%(ids)s)")
         params["ids"] = list(ids)
     select = [", ".join(f"r.{c}" for c in columns) if columns else "r.*"]
     if text_length:
         select.append("length(r.review) AS text_len")
     joins = ""
     if with_flags:
-        names = (
-            [c for c in FLAG_COLUMNS if c != "recommendation_id"]
-            if flag_columns is None
-            else flag_columns
-        )
-        select += [f"f.{c}" for c in names]
+        if flag_columns is None:
+            flag_columns = [c for c in FLAG_COLUMNS if c != "recommendation_id"]
+        select += [f"f.{c}" for c in flag_columns]
         joins += " LEFT JOIN clean.review_flags f USING (recommendation_id)"
         if only_kept:
-            where += (" AND " if where else "WHERE ") + "f.keep"
+            conditions.append("f.keep")
     if with_topics:
         select.append("rt.topic_id")
         joins += " LEFT JOIN analysis.review_topics rt USING (recommendation_id)"
-    return f"SELECT {', '.join(select)} FROM core.reviews r{joins} {where}", params
+    query = f"SELECT {', '.join(select)} FROM core.reviews r{joins} {_where(conditions)}"
+    return _chunks(query, params, _rows) if _rows else _select(query, params)
+
+
+def iter_reviews(rows=FETCH_ROWS, **kwargs):
+    """Same arguments as reviews(), but yields DataFrames of `rows` reviews from one query:
+    for passes over all reviews (e.g. all texts) without holding them in memory at once."""
+    return reviews(**kwargs, _rows=rows)
 
 
 def reviews_to_clean(rules_hash: str, full=False) -> pd.DataFrame:
@@ -112,7 +96,7 @@ def reviews_to_clean(rules_hash: str, full=False) -> pd.DataFrame:
 
 
 def flag_counts(rules: list[str]) -> pd.DataFrame:
-    """Per game and language: number of flagged reviews, how many each rule hit, how many dropped."""
+    """Per game and language: flagged reviews, hits of each rule, dropped reviews."""
     hits = ", ".join(f"count(*) FILTER (WHERE f.{rule}) AS {rule}" for rule in rules)
     return _select(
         f"SELECT r.appid, r.language, count(*) AS n_total, {hits}, "
@@ -134,18 +118,18 @@ def flagged_examples(rule: str, n=8) -> pd.DataFrame:
 
 def review_totals(appids=None) -> pd.DataFrame:
     """Steam's own review counts, one row per collection run."""
-    where, params = _filters(appids=appids)
-    return _select(f"SELECT * FROM core.review_summaries {where}", params)
+    conditions, params = _filters(appids=appids)
+    return _select(f"SELECT * FROM core.review_summaries {_where(conditions)}", params)
 
 
 def news(appids=None, since=None, until=None) -> pd.DataFrame:
-    where, params = _filters(appids, since=since, until=until, time_column="published_at")
-    return _select(f"SELECT * FROM core.news {where}", params)
+    conditions, params = _filters(appids, since=since, until=until, time_column="published_at")
+    return _select(f"SELECT * FROM core.news {_where(conditions)}", params)
 
 
 def player_counts(appids=None, since=None, until=None) -> pd.DataFrame:
-    where, params = _filters(appids, since=since, until=until, time_column="ts")
-    return _select(f"SELECT * FROM core.player_counts {where}", params)
+    conditions, params = _filters(appids, since=since, until=until, time_column="ts")
+    return _select(f"SELECT * FROM core.player_counts {_where(conditions)}", params)
 
 
 def topics() -> pd.DataFrame:
@@ -176,15 +160,16 @@ def _filters(appids=None, languages=None, since=None, until=None, time_column=No
     if until is not None:
         conditions.append(f"{time_column} < %(until)s")
         params["until"] = _utc(until)
-    return ("WHERE " + " AND ".join(conditions)) if conditions else "", params
+    return conditions, params
+
+
+def _where(conditions) -> str:
+    return ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
 
 def _utc(when):
     t = pd.Timestamp(when)
     return t.tz_localize("UTC") if t.tz is None else t
-
-
-TIMESTAMPTZ = 1184  # Postgres type id
 
 
 def _select(query, params=None) -> pd.DataFrame:

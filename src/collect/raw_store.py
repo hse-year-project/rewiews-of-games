@@ -42,16 +42,16 @@ def iter_pages(source: str, conn, full=False):
     """
     done = set() if full else parsed_pages.get(conn, source)
     root = RAW_DIR / source
-    paths = sorted(
-        (p for p in root.rglob("page_*.json.gz") if p.relative_to(root).as_posix() not in done),
-        key=lambda p: (p.parent.name, p.name),
+    pages = {p.relative_to(root).as_posix(): p for p in root.rglob("page_*.json.gz")}
+    todo = sorted(
+        (rel for rel in pages if rel not in done),
+        key=lambda rel: (pages[rel].parent.name, pages[rel].name),
     )
     handled = []
-    for path in tqdm(paths, desc=f"parse {source}", unit="page", leave=False):
-        appid = int(path.relative_to(root).parts[0])
-        with gzip.open(path, "rt", encoding="utf-8") as f:
-            yield appid, json.load(f)
-        handled.append(path.relative_to(root).as_posix())
+    for rel in tqdm(todo, desc=f"parse {source}", unit="page", leave=False):
+        with gzip.open(pages[rel], "rt", encoding="utf-8") as f:
+            yield int(rel.split("/")[0]), json.load(f)
+        handled.append(rel)
         if len(handled) == COMMIT_EVERY:
             _commit(conn, source, handled)
     _commit(conn, source, handled)

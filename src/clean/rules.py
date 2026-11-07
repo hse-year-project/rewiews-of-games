@@ -6,7 +6,8 @@ from lingua import Language, LanguageDetectorBuilder
 STEAM_LANGUAGE_CODES = {"english": "en", "russian": "ru", "schinese": "zh", "tchinese": "zh"}
 DETECTABLE = [
     Language.from_str(name)
-    for name in "english russian chinese german french spanish portuguese polish ukrainian turkish japanese korean".split()
+    for name in """english russian chinese german french spanish portuguese polish ukrainian
+    turkish japanese korean""".split()
 ]
 
 HAN = re.compile("[\u3400-\u9fff\uf900-\ufaff]")  # Chinese characters

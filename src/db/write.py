@@ -11,10 +11,9 @@ def upsert(conn, table: str, rows: list[dict], key: list[str], newer: str | None
         return 0
     cols = list(rows[0])
     placeholders = ", ".join(f"%({c})s" for c in cols)
-    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols if c not in key)
     query = (
         f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({placeholders}) "
-        f"ON CONFLICT ({', '.join(key)}) DO UPDATE SET {updates}"
+        + _on_conflict_update(cols, key)
     )
     if newer:
         query += f" WHERE {table}.{newer} <= EXCLUDED.{newer}"
@@ -25,17 +24,7 @@ def upsert(conn, table: str, rows: list[dict], key: list[str], newer: str | None
 def save_review_flags(flags):
     """Insert or overwrite flags of these reviews."""
     with connect() as conn:
-        cur = conn.cursor()
-        cur.execute("CREATE TEMP TABLE new_flags (LIKE clean.review_flags) ON COMMIT DROP")
-        _copy(cur, "new_flags", flags)
-        cols = ", ".join(flags.columns)
-        updates = ", ".join(
-            f"{c} = EXCLUDED.{c}" for c in flags.columns if c != "recommendation_id"
-        )
-        cur.execute(
-            f"INSERT INTO clean.review_flags ({cols}) SELECT {cols} FROM new_flags "
-            f"ON CONFLICT (recommendation_id) DO UPDATE SET {updates}"
-        )
+        _bulk_upsert(conn.cursor(), "clean.review_flags", flags, ["recommendation_id"])
 
 
 def add_cleaning_report(report):
@@ -56,12 +45,7 @@ def add_review_topics(review_topics):
     """Assign topics to more reviews (overwriting old assignments) and recount topic sizes."""
     with connect() as conn:
         cur = conn.cursor()
-        cur.execute("CREATE TEMP TABLE new_topics (LIKE analysis.review_topics) ON COMMIT DROP")
-        _copy(cur, "new_topics", review_topics)
-        cur.execute(
-            "INSERT INTO analysis.review_topics SELECT * FROM new_topics "
-            "ON CONFLICT (recommendation_id) DO UPDATE SET topic_id = EXCLUDED.topic_id"
-        )
+        _bulk_upsert(cur, "analysis.review_topics", review_topics, ["recommendation_id"])
         cur.execute(
             "UPDATE analysis.topics t SET n_reviews = "
             "(SELECT count(*) FROM analysis.review_topics rt WHERE rt.topic_id = t.topic_id)"
@@ -74,6 +58,22 @@ def set_topic_labels(labels: dict[int, str]):
             "UPDATE analysis.topics SET label = %s WHERE topic_id = %s",
             [(label, topic_id) for topic_id, label in labels.items()],
         )
+
+
+def _bulk_upsert(cur, table, df, key):
+    """upsert() for big DataFrames: COPY into a temporary table, then one INSERT ... ON CONFLICT."""
+    cur.execute(f"CREATE TEMP TABLE staging (LIKE {table}) ON COMMIT DROP")
+    _copy(cur, "staging", df)
+    cols = ", ".join(df.columns)
+    cur.execute(
+        f"INSERT INTO {table} ({cols}) SELECT {cols} FROM staging "
+        + _on_conflict_update(df.columns, key)
+    )
+
+
+def _on_conflict_update(cols, key) -> str:
+    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols if c not in key)
+    return f"ON CONFLICT ({', '.join(key)}) DO UPDATE SET {updates}"
 
 
 def _copy(cur, table, df):
