@@ -8,9 +8,9 @@ import torch
 from sentence_transformers import SentenceTransformer
 from tqdm.auto import tqdm
 
-from src import files
 from src.config import EMBEDDINGS_DIR
 from src.db import read, write
+from src.utils import files
 
 MARGIN = pd.Timedelta(hours=1)
 

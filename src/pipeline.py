@@ -6,7 +6,7 @@ import pandas as pd
 
 from src.clean.run import clean_reviews
 from src.collect.run import collect, parse
-from src.embeddings import embed_new, load_encoder
+from src.text.embeddings import embed_new, load_encoder
 
 log = logging.getLogger(__name__)
 

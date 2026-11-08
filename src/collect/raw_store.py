@@ -5,7 +5,7 @@ from pathlib import Path
 
 from tqdm.auto import tqdm
 
-from src import files
+from src.utils import files
 from src.config import RAW_DIR
 from src.db import parsed_pages
 
