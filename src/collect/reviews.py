@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from src.collect import raw_store
 from src.config import since
 from src.db import review_state
-from src.db.write import upsert
+from src.db.write import mark_for_cleaning, upsert
 
 log = logging.getLogger(__name__)
 
@@ -165,6 +165,7 @@ def parse(conn, full=False) -> int:
         data, request = page_contents(page)
         rows = [parse_review(r, appid, page["fetched_at"]) for r in data.get("reviews", [])]
         total += upsert(conn, "core.reviews", rows, ["recommendation_id"], newer="fetched_at")
+        mark_for_cleaning(conn, [row["recommendation_id"] for row in rows])
 
         summary = data.get("query_summary", {})
         if "total_reviews" in summary and "start_date" not in request:

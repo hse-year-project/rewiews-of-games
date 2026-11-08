@@ -56,6 +56,8 @@ class Cleaning(BaseModel):
     lang_min_chars: int
     lang_min_confidence: float
     edited_min_delay_hours: int
+    short_chars: int
+    short_han: int
 
 
 class Config(BaseModel):

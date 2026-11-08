@@ -34,7 +34,7 @@ def run(jobs: pd.DataFrame, model="BAAI/bge-m3", every_minutes=10, embed=True) -
         while True:
             collector.join(timeout=every_minutes * 60)
             finished = not collector.is_alive()
-            process(model, encoder)
+            process(model, encoder, final=finished)
             if finished:
                 break
     except KeyboardInterrupt:
@@ -46,10 +46,11 @@ def run(jobs: pd.DataFrame, model="BAAI/bge-m3", every_minutes=10, embed=True) -
     return outcome["result"]
 
 
-def process(model: str, encoder=None):
-    """One pass over what is new: parse raw pages, clean reviews, embed kept reviews."""
+def process(model: str, encoder=None, final=False):
+    """One pass over what is new: parse raw pages, clean reviews, embed kept reviews.
+    The cleaning report over all reviews is only made on the final pass."""
     print(f"--- {datetime.now():%H:%M:%S} processing new data")
     parse()
-    clean_reviews()
+    clean_reviews(report=final)
     if encoder is not None:
         embed_new(model, encoder)

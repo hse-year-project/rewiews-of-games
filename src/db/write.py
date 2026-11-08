@@ -21,10 +21,31 @@ def upsert(conn, table: str, rows: list[dict], key: list[str], newer: str | None
     return len(rows)
 
 
+def mark_for_cleaning(conn, ids):
+    """Reviews just parsed (new or changed): the next cleaning flags them."""
+    conn.cursor().executemany(
+        "INSERT INTO clean.pending VALUES (%s) ON CONFLICT DO NOTHING", [(i,) for i in ids]
+    )
+
+
 def save_review_flags(flags):
-    """Insert or overwrite flags of these reviews."""
+    """Insert or overwrite flags of these reviews; they are no longer pending."""
     with connect() as conn:
-        _bulk_upsert(conn.cursor(), "clean.review_flags", flags, ["recommendation_id"])
+        cur = conn.cursor()
+        _bulk_upsert(cur, "clean.review_flags", flags, ["recommendation_id"])
+        cur.execute(
+            "DELETE FROM clean.pending WHERE recommendation_id = ANY(%s)",
+            (list(flags["recommendation_id"]),),
+        )
+
+
+def set_watermark(name: str, value):
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO meta.watermarks VALUES (%s, %s) "
+            "ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
+            (name, value),
+        )
 
 
 def add_cleaning_report(report):

@@ -8,8 +8,11 @@ import torch
 from sentence_transformers import SentenceTransformer
 from tqdm.auto import tqdm
 
+from src import files
 from src.config import EMBEDDINGS_DIR
-from src.db import read
+from src.db import read, write
+
+MARGIN = pd.Timedelta(hours=1)
 
 
 class Embeddings:
@@ -20,6 +23,7 @@ class Embeddings:
     """
 
     def __init__(self, model: str):
+        self.model = model
         self.dir = EMBEDDINGS_DIR / model.replace("/", "__")
         self.dir.mkdir(parents=True, exist_ok=True)
         self.parts = sorted(self.dir.glob("part-*.parquet"))
@@ -54,7 +58,7 @@ class Embeddings:
         return vectors[pd.Index(found).get_indexer(ids)]
 
     def add(self, ids, updated_at, vectors: np.ndarray):
-        """Save vectors as a new file (via a temporary name: a stop leaves no broken file)."""
+        """Save vectors as a new file."""
         table = pa.table(
             {
                 "recommendation_id": pa.array(ids),
@@ -64,10 +68,28 @@ class Embeddings:
                 ),
             }
         )
-        path = self.dir / f"part-{self.run}-{self.written:04d}.parquet"
-        pq.write_table(table, path.with_suffix(".tmp"))
-        path.with_suffix(".tmp").rename(path)
+        _write(table, self.dir / f"part-{self.run}-{self.written:04d}.parquet")
         self.written += 1
+
+    def prune(self, keep_ids) -> int:
+        """Delete vectors that are not needed: older vectors of edited reviews, and reviews not in
+        keep_ids (e.g. dropped by cleaning, or too short). Only files that change are rewritten.
+        Returns how many vectors were deleted; the index is read again afterwards."""
+        keep = self.index[self.index["recommendation_id"].isin(keep_ids)]
+        rows = {part: np.sort(g.to_numpy()) for part, g in keep.groupby("part")["row"]}
+        deleted = 0
+        for part, path in enumerate(tqdm(self.parts, desc="prune", unit="file")):
+            stored = pq.ParquetFile(path).metadata.num_rows
+            needed = rows.get(part, np.array([], dtype=np.int64))
+            if len(needed) == stored:
+                continue
+            deleted += stored - len(needed)
+            if len(needed):
+                _write(pq.read_table(path).take(needed), path)
+            else:
+                path.unlink()
+        self.__init__(self.model)
+        return deleted
 
 
 def load_encoder(model: str) -> SentenceTransformer:
@@ -80,21 +102,28 @@ def load_encoder(model: str) -> SentenceTransformer:
 
 
 def embed_new(model: str, encoder, prompt="", batch=128, part_size=20_000) -> int:
-    """Embed kept reviews that are new or edited since they were embedded; returns how many.
+    """Embed kept, not too short reviews that are new or edited since they were embedded;
+    returns how many. Only looks at reviews flagged since its last run (meta.watermarks).
 
     Texts are loaded per part of `part_size` reviews, and each part is saved as one file,
     so a stop loses at most one part and re-running continues where it stopped.
     """
     emb = Embeddings(model)
-    reviews = read.reviews(
-        columns=["recommendation_id", "updated_at"], only_kept=True, flag_columns=[]
+    mark = f"embed:{model}"
+    since = read.watermark(mark)
+    candidates = read.reviews(
+        columns=["recommendation_id", "updated_at"],
+        only_kept=True,
+        skip_short=True,
+        flagged_since=None if since is None else since - MARGIN,
+        flag_columns=["flagged_at"],
     )
     embedded = emb.index[["recommendation_id", "updated_at"]].rename(
         columns={"updated_at": "embedded_at"}
     )
-    reviews = reviews.merge(embedded, on="recommendation_id", how="left")
+    reviews = candidates.merge(embedded, on="recommendation_id", how="left")
     todo = reviews[reviews["embedded_at"].isna() | (reviews["updated_at"] > reviews["embedded_at"])]
-    print(f"embedding {len(todo):,} new or edited reviews ({len(emb.index):,} already embedded)")
+    print(f"embedding {len(todo):,} new or edited reviews (of {len(candidates):,} flagged since)")
 
     with tqdm(total=len(todo), desc="embed", unit="review") as bar:
         for start in range(0, len(todo), part_size):
@@ -117,7 +146,15 @@ def embed_new(model: str, encoder, prompt="", batch=128, part_size=20_000) -> in
                 )
                 bar.update(len(texts))
             emb.add(part["recommendation_id"], part["updated_at"], np.concatenate(vectors))
+    if not candidates.empty:
+        write.set_watermark(mark, candidates["flagged_at"].max())
     return len(todo)
+
+
+def _write(table, path):
+    tmp = path.with_suffix(".tmp")
+    pq.write_table(table, tmp)
+    files.replace(tmp, path)
 
 
 def _empty_index():

@@ -25,3 +25,5 @@ cleaning:
   lang_min_chars: 20          # don't run language detection on shorter texts
   lang_min_confidence: 0.9     # below this, text_language falls back to the Steam language
   edited_min_delay_hours: 24
+  short_chars: 20             # shorter -> is_short: no topic (-2) and no embedding
+  short_han: 4                # Chinese text: fewer Chinese characters than this -> is_short

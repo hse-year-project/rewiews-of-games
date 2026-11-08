@@ -5,6 +5,7 @@ from pathlib import Path
 
 from tqdm.auto import tqdm
 
+from src import files
 from src.config import RAW_DIR
 from src.db import parsed_pages
 
@@ -31,7 +32,7 @@ def save_page(run_dir: Path, n: int, url: str, params: dict | None, response):
     tmp = path.with_suffix(".tmp")
     with gzip.open(tmp, "wt", encoding="utf-8") as f:
         json.dump(page, f, ensure_ascii=False)
-    tmp.replace(path)
+    files.replace(tmp, path)
 
 
 def iter_pages(source: str, conn, full=False):

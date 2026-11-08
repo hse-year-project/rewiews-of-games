@@ -23,7 +23,10 @@ def reviews(
     until=None,
     columns: list[str] | None = None,
     ids=None,
+    authors=None,
     only_kept=False,
+    skip_short=False,
+    flagged_since=None,
     with_flags=True,
     flag_columns: list[str] | None = None,
     with_topics=False,
@@ -32,6 +35,8 @@ def reviews(
 ) -> pd.DataFrame:
     """Reviews with their cleaning flags (and topic). since/until filter by created_at.
 
+    ids / authors: only these reviews / these authors' (author_steamid) reviews.
+    skip_short: without too-short reviews; flagged_since: only reviews flagged after this time.
     For millions of reviews load only what you need: `columns` (e.g. without `review`),
     `flag_columns` (None = all, [] = none), `text_length=True` adds text_len instead of the text.
     Topic names: read.topics().
@@ -40,6 +45,9 @@ def reviews(
     if ids is not None:
         conditions.append("r.recommendation_id = ANY(%(ids)s)")
         params["ids"] = list(ids)
+    if authors is not None:
+        conditions.append("r.author_steamid = ANY(%(authors)s)")
+        params["authors"] = list(authors)
     select = [", ".join(f"r.{c}" for c in columns) if columns else "r.*"]
     if text_length:
         select.append("length(r.review) AS text_len")
@@ -51,6 +59,11 @@ def reviews(
         joins += " LEFT JOIN clean.review_flags f USING (recommendation_id)"
         if only_kept:
             conditions.append("f.keep")
+        if skip_short:
+            conditions.append("NOT f.is_short")
+        if flagged_since is not None:
+            conditions.append("f.flagged_at > %(flagged_since)s")
+            params["flagged_since"] = _utc(flagged_since)
     if with_topics:
         select.append("rt.topic_id")
         joins += " LEFT JOIN analysis.review_topics rt USING (recommendation_id)"
@@ -64,35 +77,26 @@ def iter_reviews(rows=FETCH_ROWS, **kwargs):
     return reviews(**kwargs, _rows=rows)
 
 
-def reviews_to_clean(rules_hash: str, full=False) -> pd.DataFrame:
-    """IDs of reviews without flags, edited since flagged or flagged under other rules,
-    plus all other reviews of their authors (needed for the duplicate rule); full: all reviews.
+def reviews_to_clean(full=False) -> pd.DataFrame:
+    """IDs of reviews to flag: parsed (new or changed) since they were last flagged; full: all.
     author_key = author's Steam ID (the review's own ID when unknown), to keep authors together."""
-    if full:
-        return _select(
-            "SELECT recommendation_id, coalesce(author_steamid, recommendation_id) AS author_key "
-            "FROM core.reviews"
-        )
+    pending = "" if full else "JOIN clean.pending USING (recommendation_id)"
     return _select(
-        """
-        WITH changed AS (
-            SELECT r.recommendation_id, r.author_steamid
-            FROM core.reviews r LEFT JOIN clean.review_flags f USING (recommendation_id)
-            WHERE f.recommendation_id IS NULL
-               OR f.review_updated_at IS DISTINCT FROM r.updated_at
-               OR f.rules_hash IS DISTINCT FROM %(rules_hash)s
-        ),
-        ids AS (
-            SELECT recommendation_id FROM changed
-            UNION
-            SELECT r.recommendation_id FROM core.reviews r
-            JOIN (SELECT DISTINCT author_steamid FROM changed) a USING (author_steamid)
-        )
-        SELECT r.recommendation_id, coalesce(r.author_steamid, r.recommendation_id) AS author_key
-        FROM core.reviews r JOIN ids USING (recommendation_id)
-        """,
-        {"rules_hash": rules_hash},
+        "SELECT recommendation_id, coalesce(author_steamid, recommendation_id) AS author_key "
+        f"FROM core.reviews {pending}"
     )
+
+
+def rules_changed(rules_hash: str) -> bool:
+    """Were any reviews flagged under other rules or thresholds than the current ones?"""
+    query = "SELECT EXISTS (SELECT 1 FROM clean.review_flags WHERE rules_hash IS DISTINCT FROM %s)"
+    return bool(_select(query, (rules_hash,)).iloc[0, 0])
+
+
+def watermark(name: str):
+    """Last stored time for `name` (write.set_watermark), None if never set."""
+    found = _select("SELECT value FROM meta.watermarks WHERE name = %s", (name,))
+    return None if found.empty else found["value"].iloc[0]
 
 
 def flag_counts(rules: list[str]) -> pd.DataFrame:

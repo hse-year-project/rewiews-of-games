@@ -1,5 +1,6 @@
 import re
 
+import numpy as np
 import pandas as pd
 from lingua import Language, LanguageDetectorBuilder
 
@@ -101,9 +102,20 @@ def is_edited(df, cfg):
     return df["updated_at"] - df["created_at"] > pd.Timedelta(hours=cfg.edited_min_delay_hours)
 
 
+def is_short(df, cfg):
+    """Too short to have a topic ("gg", "好玩", "10/10"): not embedded, topic -2."""
+    t = text(df)
+    short = np.where(
+        df["text_language"].eq("zh"),
+        t.str.count(HAN) < cfg.short_han,
+        t.str.len() < cfg.short_chars,
+    )
+    return pd.Series(short, index=df.index)
+
+
 # Drop rules set keep = False; flag rules only mark the review.
 DROP_RULES = [is_empty, is_junk, is_duplicate_text]
-FLAG_RULES = [is_lang_mismatch, is_edited]
+FLAG_RULES = [is_lang_mismatch, is_edited, is_short]
 RULE_NAMES = [rule.__name__ for rule in DROP_RULES + FLAG_RULES]
 FLAG_COLUMNS = [
     "recommendation_id",
@@ -121,5 +133,10 @@ def add_flags(df, cfg):
     df["text_language"] = text_language(df, cfg)
     for rule in DROP_RULES + FLAG_RULES:
         df[rule.__name__] = rule(df, cfg)
-    df["keep"] = ~df[[rule.__name__ for rule in DROP_RULES]].any(axis=1)
+    df["keep"] = keep(df)
     return df
+
+
+def keep(df):
+    """Kept = no drop rule hit."""
+    return ~df[[rule.__name__ for rule in DROP_RULES]].any(axis=1)

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS core.games (
     categories        text[],
     fetched_at        timestamptz NOT NULL
 );
-ALTER TABLE core.games DROP COLUMN IF EXISTS group_tag;  -- removed 2026-11; drops it from older databases
+ALTER TABLE core.games DROP COLUMN IF EXISTS group_tag;
 
 CREATE TABLE IF NOT EXISTS core.game_prices (
     appid             integer NOT NULL,
@@ -109,6 +109,11 @@ CREATE TABLE IF NOT EXISTS meta.parsed_pages (
     PRIMARY KEY (source, path)
 );
 
+CREATE TABLE IF NOT EXISTS meta.watermarks (
+    name                  text PRIMARY KEY,       -- e.g. "embed:BAAI/bge-m3"
+    value                 timestamptz NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS meta.cleaning_report (
     run_id            text NOT NULL,
     rule              text NOT NULL,
@@ -130,12 +135,28 @@ CREATE TABLE IF NOT EXISTS clean.review_flags (
     is_lang_mismatch      boolean NOT NULL,
     text_language         text,                   -- language of the text (`language` = Steam client)
     is_edited             boolean NOT NULL,
+    is_short              boolean NOT NULL,       -- too short to have a topic (no embedding, topic -2)
     keep                  boolean NOT NULL,
     review_updated_at     timestamptz,            -- review's updated_at when flagged: newer = re-check
-    rules_hash            text                    -- cleaning rules + thresholds when flagged: other = re-check
+    rules_hash            text,                   -- cleaning rules + thresholds when flagged: other = re-check
+    flagged_at            timestamptz NOT NULL DEFAULT now()  -- embedding picks up what was flagged since
 );
 ALTER TABLE clean.review_flags ADD COLUMN IF NOT EXISTS review_updated_at timestamptz;
 ALTER TABLE clean.review_flags ADD COLUMN IF NOT EXISTS rules_hash text;
+ALTER TABLE clean.review_flags ADD COLUMN IF NOT EXISTS is_short boolean;
+ALTER TABLE clean.review_flags ADD COLUMN IF NOT EXISTS flagged_at timestamptz NOT NULL DEFAULT now();
+CREATE INDEX IF NOT EXISTS review_flags_flagged_at ON clean.review_flags (flagged_at);
+
+DO $$
+BEGIN
+    IF to_regclass('clean.pending') IS NULL THEN
+        CREATE TABLE clean.pending (recommendation_id bigint PRIMARY KEY);
+        INSERT INTO clean.pending
+        SELECT r.recommendation_id
+        FROM core.reviews r LEFT JOIN clean.review_flags f USING (recommendation_id)
+        WHERE f.recommendation_id IS NULL OR f.review_updated_at IS DISTINCT FROM r.updated_at;
+    END IF;
+END $$;
 
 CREATE SCHEMA IF NOT EXISTS analysis;
 
