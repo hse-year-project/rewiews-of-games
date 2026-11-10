@@ -2,7 +2,7 @@
 .env
 
 # data (raw API dumps, local exports)
-data/
+/data/
 
 # python
 .venv/
