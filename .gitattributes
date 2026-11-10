@@ -4,5 +4,7 @@
 *.ipynb filter=nbstripout
 *.zpln filter=nbstripout
 *.ipynb diff=ipynb
+# EDA notebooks keep their outputs in git: the charts and tables are the result
+notebooks/eda/*.ipynb -filter
 
 configs/games.yaml merge=union

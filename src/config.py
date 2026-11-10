@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RAW_DIR = ROOT / "data" / "raw"
 EMBEDDINGS_DIR = ROOT / "data" / "embeddings"
 TOPICS_DIR = ROOT / "data" / "models" / "bertopic"
+FEATURES_DIR = ROOT / "data" / "features"
 TOPIC_SHORT, TOPIC_NOISE = -2, -1  # special topic ids: too short to have a topic, no clear topic
 
 

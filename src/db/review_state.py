@@ -32,3 +32,12 @@ def update(conn, appid, language, **fields):
         {"appid": appid, "language": language, **fields},
     )
     conn.commit()
+
+
+def newest_collected(conn, appid, language):
+    """Latest updated_at among the reviews we have (from anyone's raw pages), None if none."""
+    cur = conn.execute(
+        "SELECT max(updated_at) FROM core.reviews WHERE appid = %s AND language = %s",
+        (appid, language),
+    )
+    return cur.fetchone()[0]

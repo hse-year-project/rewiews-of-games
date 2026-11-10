@@ -23,6 +23,7 @@ STYLE = {
     "axes.spines.top": False,
     "axes.spines.right": False,
     "axes.grid": True,
+    "axes.axisbelow": True,
     "grid.color": "#e5e5e5",
     "grid.linewidth": 0.8,
     "lines.linewidth": 2,
@@ -53,10 +54,11 @@ def date_axis(ax):
 
 
 def per_game_panels(
-    data, title: str, ylabel: str, patches=None, ylim=None, percent=False, log=False
+    data, title: str, ylabel: str, patches=None, ylim=None, percent=False, log=False, styles=None
 ):
     """One panel per game. data: Series, or DataFrame for several lines, with index (appid, day);
-    NaN breaks the line. patches: (appid, day) index of patch days, drawn as vertical lines."""
+    NaN breaks the line. patches: (appid, day) index of patch days, drawn as vertical lines.
+    styles: plot settings per DataFrame column, e.g. {"observed": {"linewidth": 0.6}}."""
     names = game_names()
     appids = list(dict.fromkeys(data.index.get_level_values(0)))
     if not appids:
@@ -74,13 +76,17 @@ def per_game_panels(
             ax.plot(d.index, d.values, color=SERIES_COLOR)
         else:
             for column in d.columns[d.notna().any()]:
-                ax.plot(d.index, d[column], label=textwrap.shorten(str(column), 40))
+                style = (styles or {}).get(column, {})
+                ax.plot(d.index, d[column], label=textwrap.shorten(str(column), 40), **style)
             ax.legend(fontsize=7, frameon=False, loc="upper left")
         ax.set_title(names.get(appid, appid), loc="left", fontsize=10)
         ax.set_ylabel(ylabel)
         if log:
             ax.set_yscale("log")
-        ax.yaxis.set_major_formatter(PercentFormatter(1.0) if percent else EngFormatter(sep=""))
+        if percent:
+            ax.yaxis.set_major_formatter(PercentFormatter(1.0))
+        elif pd.DataFrame(d).abs().max().max() >= 1000:
+            ax.yaxis.set_major_formatter(EngFormatter(sep=""))  # 12k, 1.5M
         date_axis(ax)
         if ylim:
             ax.set_ylim(*ylim)

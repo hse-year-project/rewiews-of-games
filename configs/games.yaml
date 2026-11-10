@@ -1,31 +1,46 @@
+- {appid: 440, name: Team Fortress 2}
 - {appid: 570, name: Dota 2}
 - {appid: 730, name: Counter-Strike 2}
+- {appid: 105600, name: Terraria}
 - {appid: 230410, name: Warframe}
 - {appid: 236390, name: War Thunder}
+- {appid: 242760, name: The Forest}
+- {appid: 264710, name: Subnautica}
 - {appid: 268500, name: XCOM® 2}
 - {appid: 275850, name: No Mans Sky}
 - {appid: 281990, name: Stellaris}
+- {appid: 291550, name: Brawlhalla}
 - {appid: 294100, name: RimWorld}
 - {appid: 304390, name: FOR HONOR™}
 - {appid: 323190, name: Frostpunk}
+- {appid: 367520, name: Hollow Knight}
+- {appid: 381210, name: Dead by Daylight}
 - {appid: 386360, name: SMITE®}
+- {appid: 392160, name: 'X4: Foundations'}
 - {appid: 394360, name: Hearts of Iron IV}
+- {appid: 413150, name: Stardew Valley}
 - {appid: 418370, name: Resident Evil 7 Biohazard}
 - {appid: 427520, name: Factorio}
 - {appid: 526870, name: Satisfactory}
 - {appid: 553850, name: Helldivers 2}
 - {appid: 599140, name: Graveyard Keeper}
 - {appid: 632360, name: Risk of Rain 2}
+- {appid: 728880, name: Overcooked! 2}
+- {appid: 739630, name: Phasmophobia}
+- {appid: 753640, name: Outer Wilds}
 - {appid: 1030300, name: 'Hollow Knight: Silksong'}
 - {appid: 1085660, name: Destiny 2}
 - {appid: 1086940, name: Baldur's Gate 3}
 - {appid: 1091500, name: Cyberpunk 2077}
 - {appid: 1145360, name: Hades}
 - {appid: 1172470, name: Apex Legends™}
+- {appid: 1238840, name: Battlefield™ 1}
 - {appid: 1262350, name: SIGNALIS}
 - {appid: 1285190, name: Borderlands 4}
 - {appid: 1313140, name: Cult of the Lamb}
 - {appid: 1326470, name: Sons Of The Forest}
+- {appid: 1426210, name: It Takes Two}
+- {appid: 1721470, name: Poppy Playtime}
 - {appid: 1808500, name: ARC Raiders}
 - {appid: 1903340, name: 'Clair Obscur: Expedition 33'}
 - {appid: 1962663, name: 'Call of Duty®: Warzone™'}
@@ -33,7 +48,9 @@
 - {appid: 2050650, name: Resident Evil 4}
 - {appid: 2073850, name: THE FINALS}
 - {appid: 2129530, name: REANIMAL}
+- {appid: 2162800, name: shapez 2 - Factory}
 - {appid: 2183900, name: 'Warhammer 40,000: Space Marine 2'}
+- {appid: 2225070, name: Trackmania}
 - {appid: 2357570, name: Overwatch 2}
 - {appid: 2379780, name: Balatro}
 - {appid: 2767030, name: Marvel Rivals}
@@ -41,3 +58,5 @@
 - {appid: 3241660, name: R.E.P.O.}
 - {appid: 3764200, name: Resident Evil Requiem}
 - {appid: 4435490, name: 'Call of Duty®: Modern Warfare® 4'}
+- {appid: 4572120, name: Dirt Clicker}
+- {appid: 4704690, name: MECCHA CHAMELEON}

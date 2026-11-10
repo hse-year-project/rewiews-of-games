@@ -120,15 +120,123 @@ def flagged_examples(rule: str, n=8) -> pd.DataFrame:
     )
 
 
+def daily_reviews(appids=None, since=None, until=None) -> pd.DataFrame:
+    """Kept reviews per game, UTC day (of created_at), Steam language and detected text
+    language: n, n_positive."""
+    return _daily(
+        ["r.language", "f.text_language"],
+        "count(*) AS n, count(*) FILTER (WHERE r.voted_up) AS n_positive",
+        "",
+        appids,
+        since,
+        until,
+    )
+
+
+def daily_topics(appids=None, since=None, until=None) -> pd.DataFrame:
+    """Kept reviews per game, UTC day (of created_at) and topic: n."""
+    return _daily(
+        ["rt.topic_id"],
+        "count(*) AS n",
+        "JOIN analysis.review_topics rt USING (recommendation_id)",
+        appids,
+        since,
+        until,
+    )
+
+
+def _daily(keys, values, join, appids, since, until) -> pd.DataFrame:
+    conditions, params = _filters(appids, since=since, until=until, time_column="r.created_at")
+    conditions.append("f.keep")
+    group = ", ".join(str(i) for i in range(1, len(keys) + 3))
+    return _select(
+        f"SELECT r.appid, date_trunc('day', r.created_at AT TIME ZONE 'UTC') AS day, "
+        f"{', '.join(keys)}, {values} "
+        f"FROM core.reviews r JOIN clean.review_flags f USING (recommendation_id) {join} "
+        f"{_where(conditions)} GROUP BY {group}",
+        params,
+    )
+
+
+def language_profile(appids=None) -> pd.DataFrame:
+    """Per game and Steam language, over kept reviews: n, positive (👍 share), medians of hours
+    played at review and in total, the author's review count and the text length, and the
+    shares written under 2 hours (Steam's refund window), bought on Steam, and got for free."""
+    conditions, params = _filters(appids=appids)
+    conditions.append("f.keep")
+    median = "percentile_cont(0.5) WITHIN GROUP (ORDER BY {})"
+    return _select(
+        "SELECT r.appid, r.language, count(*) AS n, avg(r.voted_up::int)::float AS positive, "
+        f"{median.format('r.author_playtime_at_review')} / 60 AS hours_at_review, "
+        f"{median.format('r.author_playtime_forever')} / 60 AS hours_total, "
+        f"{median.format('r.author_num_reviews')} AS author_reviews, "
+        f"{median.format('length(r.review)')} AS text_length, "
+        "avg((r.author_playtime_at_review < 120)::int)::float AS under_2h, "
+        "avg(r.steam_purchase::int)::float AS steam_purchase, "
+        "avg(r.received_for_free::int)::float AS free "
+        "FROM core.reviews r JOIN clean.review_flags f USING (recommendation_id) "
+        f"{_where(conditions)} GROUP BY 1, 2",
+        params,
+    )
+
+
+def topics_by_language(appids=None) -> pd.DataFrame:
+    """Kept reviews per game, Steam language, 👍/👎 and topic: n."""
+    conditions, params = _filters(appids=appids)
+    conditions.append("f.keep")
+    return _select(
+        "SELECT r.appid, r.language, r.voted_up, rt.topic_id, count(*) AS n "
+        "FROM core.reviews r JOIN clean.review_flags f USING (recommendation_id) "
+        "JOIN analysis.review_topics rt USING (recommendation_id) "
+        f"{_where(conditions)} GROUP BY 1, 2, 3, 4",
+        params,
+    )
+
+
+def shared_reviewers() -> pd.DataFrame:
+    """Audience overlap: for every pair of games (a < b), how many Steam accounts reviewed both;
+    pairs with a = b give each game's number of reviewers."""
+    return _select(
+        "WITH a AS (SELECT DISTINCT appid, author_steamid FROM core.reviews "
+        "WHERE author_steamid IS NOT NULL) "
+        "SELECT x.appid AS a, y.appid AS b, count(*) AS n FROM a x JOIN a y "
+        "ON x.author_steamid = y.author_steamid AND x.appid <= y.appid GROUP BY 1, 2"
+    )
+
+
 def review_totals(appids=None) -> pd.DataFrame:
     """Steam's own review counts, one row per collection run."""
     conditions, params = _filters(appids=appids)
     return _select(f"SELECT * FROM core.review_summaries {_where(conditions)}", params)
 
 
-def news(appids=None, since=None, until=None) -> pd.DataFrame:
+def review_counts(appids=None) -> pd.DataFrame:
+    """Reviews we have per game and Steam language (before cleaning): n."""
+    conditions, params = _filters(appids=appids)
+    return _select(
+        f"SELECT appid, language, count(*) AS n FROM core.reviews {_where(conditions)} "
+        "GROUP BY 1, 2",
+        params,
+    )
+
+
+def news(appids=None, since=None, until=None, columns: list[str] | None = None) -> pd.DataFrame:
+    """columns: e.g. without `contents` (long patch notes) when only dates and titles are needed."""
     conditions, params = _filters(appids, since=since, until=until, time_column="published_at")
-    return _select(f"SELECT * FROM core.news {_where(conditions)}", params)
+    select = ", ".join(columns) if columns else "*"
+    return _select(f"SELECT {select} FROM core.news {_where(conditions)}", params)
+
+
+def patches(appids=None) -> pd.DataFrame:
+    """Official patch and update notes (the game's own Steam posts, not press articles about
+    them): appid, published_at, title, length (characters of the notes)."""
+    conditions, params = _filters(appids=appids)
+    conditions += ["is_patch", "left(feedname, 6) = 'steam_'"]
+    return _select(
+        "SELECT appid, published_at, title, length(contents) AS length "
+        f"FROM core.news {_where(conditions)}",
+        params,
+    )
 
 
 def player_counts(appids=None, since=None, until=None) -> pd.DataFrame:

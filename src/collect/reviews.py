@@ -45,7 +45,10 @@ def collect(client, conn, appid, language, cap=None, total=None) -> int:
     if total is None:
         total = count(client, appid, language)
     state = review_state.get(conn, appid, language)
-    watermark = state["watermark_updated_at"] if state else None
+    if state:
+        watermark = state["watermark_updated_at"]
+    else:
+        watermark = review_state.newest_collected(conn, appid, language)
     stop_at = max(filter(None, [since(), watermark]), default=None)
 
     if state and state["status"] == "running" and state["last_cursor"]:
